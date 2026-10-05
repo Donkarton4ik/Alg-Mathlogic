@@ -1,0 +1,217 @@
+\noindent
+{\Large \textbf{\section{Особенности реализации}}} \par
+
+Программа написана на C++ с использованием Qt6 для реализации графической состовляющей. Программа состоит из 3 классов:
+\begin{itemize}[itemsep=-3pt]
+ \item \textbf{Neumann\_class} - хранит номер варианта и по нему строит таблицу истинности
+ \item \textbf{GridWidget} - виджет поля-решетки
+ \item \textbf{MainWindow} - главное окно программы, на котором задаются начальные условия, размеры поля, а также вычисляется состояние поля на i-ой итерации
+\end{itemize}
+
+\noindent{\Large \textbf{\subsection{Класс Neumann\_class}}} \par
+
+\textbf{Функция fill\_f\_col} \par
+\textbf{Вход:} \texttt{int variant} - номер варианта \par
+\textbf{Выход:} \texttt{std::vector<int> f\_col} - 32 бита номера варианта (столбец значений таблицы истинности) \par
+\textbf{Описание:} раскладывает число на двоичные разряды, заполняя вектор с конца, так что \texttt{f\_col[0]} - старший бит, а \texttt{f\_col[31]} - младший. Недостающие старшие разряды остаются нулями.
+
+\begin{lstlisting}[caption=fill\_f\_col, label=lst:fill-f-col]
+void Neumann_class::fill_f_col(){
+    f_col.assign(32, 0);
+    int var_copy = variant;
+    int i = 31;
+    while(var_copy){
+        f_col[i] = var_copy % 2;
+        var_copy /= 2;
+        i--;
+    }
+}
+\end{lstlisting}
+
+\textbf{Функция fill\_neumann} \par
+\textbf{Вход:} \texttt{std::vector<int> f\_col} - 32 бита номера варианта \par
+\textbf{Выход:} \texttt{std::map<std::string, int> neumann} - отображение, задающее правило работы автомата (таблица истинности) \par
+\textbf{Описание:} для каждого $i=0..31$ формирует ключ - строку из пяти битов числа $i$, начиная со старшего (порядок: верх, лево, центр, право, низ), - и сопоставляет ему значение \texttt{f\_col[i]}.
+
+\newpage
+
+\begin{lstlisting}[caption=fill\_neumann, label=lst:fill-neumann]
+void Neumann_class::fill_neumann(){
+    for(int i = 0; i < 32; i++){
+        std::string str_i = "";
+        for(int bias = 0; bias < 5; bias++){
+            str_i += std::to_string( (i >> (4 - bias)) & 1 );
+        }
+        neumann[str_i] = f_col[i];
+    }
+}
+\end{lstlisting}
+
+
+
+\noindent{\Large \textbf{\subsection{Класс GridWidget}}} \par
+
+\vspace{-8pt}
+
+\textbf{Функция mousePressEvent} \par
+\textbf{Вход:} \texttt{QMouseEvent* event} - событие нажатия кнопки мыши \par
+\textbf{Выход:} сигнал \texttt{cell\_clicked(row, col)} \par
+\textbf{Описание:} размер клетки получается делением ширины и высоты виджета на число столбцов и строк. Координаты клика делятся на размер клетки, получаются индексы \texttt{row} и \texttt{col}. Если они лежат внутри поля, испускается сигнал \texttt{cell\_clicked}.\par
+
+\begin{lstlisting}[caption=mousePressEvent, label=lst:mouse]
+void GridWidget::mousePressEvent(QMouseEvent* event){
+    if (grid.empty()) return;
+    int rows = static_cast<int>(grid.size());
+    int cols = static_cast<int>(grid[0].size());
+    double cell_w = width() / static_cast<double>(cols);
+    double cell_h = height() / static_cast<double>(rows);
+
+    int col = static_cast<int>(event->position().x() / cell_w);
+    int row = static_cast<int>(event->position().y() / cell_h);
+    if (row >= 0 && row < rows && col >= 0 && col < cols){
+        emit cell_clicked(row, col);
+    }
+}
+\end{lstlisting}
+
+
+\noindent{\Large \textbf{\subsection{Класс MainWindow}}} \par
+
+\textbf{Функция on\_init} \par
+\textbf{Вход:} значения полей ширины и числа итераций, состояние переключателя начальных условий \par
+\textbf{Выход:} новое поле \texttt{cells}, передаваемое в \texttt{GridWidget} \par
+\textbf{Описание:} слот кнопки «Перегенерировать» (вызывается также при запуске программы). Считывает ширину поля и число итераций, обнуляет счетчик итераций и создает матрицу из нулей. Если выбран режим «Случайные», каждой клетке присваивается 0 или 1 с вероятностью $1/2$; в режиме «Вручную» поле остается пустым.\par
+
+\begin{lstlisting}[caption=on\_init, label=lst:init]
+void MainWindow::on_init(){
+    field_size = width_spin->value();
+    max_iterations = iters_spin->value();
+    iteration = 0;
+
+    cells.assign(field_size, std::vector<int>(field_size, 0));
+    if (random_radio->isChecked()){
+        for (int r = 0; r < field_size; ++r){
+            for (int c = 0; c < field_size; ++c){
+                cells[r][c] = std::rand() % 2;
+            }
+        }
+    }
+    grid_widget->set_grid(cells);
+}
+\end{lstlisting}
+
+
+\textbf{Функция on\_cell\_clicked} \par
+\textbf{Вход:} \texttt{int row, int col} - индексы клетки, по которой кликнули \par
+\textbf{Выход:} изменённое поле \texttt{cells} \par
+\textbf{Описание:} слот сигнала \texttt{cell\_clicked}. Если выбран режим «Вручную», значение клетки инвертируется и поле передаётся виджету на перерисовку; в режиме «Случайные» клик игнорируется.\par
+
+\begin{lstlisting}[caption=on\_cell\_clicked, label=lst:click]
+void MainWindow::on_cell_clicked(int row, int col){
+    if (manual_radio->isChecked() == false) return;
+    cells[row][col] = cells[row][col] ? 0 : 1;
+    grid_widget->set_grid(cells);
+}
+\end{lstlisting}
+
+\vspace{6pt}
+\textbf{Функция torus\_index} \par
+\textbf{Вход:} \texttt{int i} - индекс строки или столбца, $i\in[-1,n]$ \par
+\textbf{Выход:} \texttt{int} - индекс из $[0,n-1]$ \par
+\textbf{Описание:} реализует тороидальные границы: $-1\mapsto n-1$, $n\mapsto 0$, остальные индексы не меняются.\par
+
+\begin{lstlisting}[caption=torus\_index, label=lst:torus]
+int MainWindow::torus_index(int i){
+    if (i < 0) return i + field_size;
+    if (i >= field_size) return i - field_size;
+    return i;
+}
+\end{lstlisting}
+
+\newpage
+\textbf{Функция next\_state} \par
+\textbf{Вход:} \texttt{int row, int col} - координаты клетки \par
+\textbf{Выход:} \texttt{int} - новое состояние клетки (0 или 1) \par
+\textbf{Описание:} находит индексы верхнего, нижнего, левого и правого соседей через \texttt{torus\_index}, затем формирует строку-ключ из пяти символов в порядке «верх, лево, центр, право, низ» (тот же порядок, что при построении таблицы в \texttt{Neumann\_class}) и возвращает значение \texttt{neumann.neumann.at(key)}.\par
+
+\begin{lstlisting}[caption=next\_state, label=lst:next-state]
+int MainWindow::next_state(int row, int col){
+    int up = torus_index(row - 1);
+    int down = torus_index(row + 1);
+    int left = torus_index(col - 1);
+    int right = torus_index(col + 1);
+
+    std::string key;
+    key += std::to_string(cells[up][col]);
+    key += std::to_string(cells[row][left]);
+    key += std::to_string(cells[row][col]);
+    key += std::to_string(cells[row][right]);
+    key += std::to_string(cells[down][col]);
+
+    return neumann.neumann.at(key);
+}
+\end{lstlisting}
+
+\vspace{6pt}
+\textbf{Функция make\_step} \par
+\textbf{Вход:} текущее поле \texttt{cells} \par
+\textbf{Выход:} поле на следующей итерации (записывается в \texttt{cells}) \par
+\textbf{Описание:} для каждой клетки вызывает \texttt{next\_state} и записывает результат в отдельную матрицу \texttt{next}. Только после обхода всех клеток \texttt{cells} заменяется на \texttt{next}; это обеспечивает синхронное обновление, при котором новые значения не влияют на вычисление соседних клеток. Затем увеличивается счетчик итераций и поле передается виджету.\par
+
+\begin{lstlisting}[caption=make\_step, label=lst:make-step]
+void MainWindow::make_step(){
+    std::vector<std::vector<int>> next(field_size, std::vector<int>(field_size, 0));
+    for (int r = 0; r < field_size; ++r){
+        for (int c = 0; c < field_size; ++c){
+            next[r][c] = next_state(r, c);
+        }
+    }
+
+    cells = next;
+    iteration = iteration + 1;
+    grid_widget->set_grid(cells);
+}
+\end{lstlisting}
+
+\newpage
+\textbf{Функция on\_toggle\_run} \par
+\textbf{Вход:} число итераций из поля ввода, состояние таймера \texttt{timer} \par
+\textbf{Выход:} запущенный или остановленный таймер \par
+\textbf{Описание:} слот кнопки «Старт» / «Стоп». Если таймер работает, он останавливается. Иначе число итераций считывается из поля ввода, записывается в счетчик \texttt{remaining\_auto\_steps} и запускается таймер с интервалом 150~мс.\par
+
+\begin{lstlisting}[caption=on\_toggle\_run, label=lst:toggle]
+void MainWindow::on_toggle_run(){
+    if (timer->isActive()){
+        timer->stop();
+        run_button->setText("Старт");
+    } else {
+        max_iterations = iters_spin->value();
+        remaining_auto_steps = max_iterations;
+        timer->start();
+        run_button->setText("Стоп");
+    }
+}
+\end{lstlisting}
+
+\vspace{6pt}
+\textbf{Функция on\_auto\_tick} \par
+\textbf{Вход:} счетчик \texttt{remaining\_auto\_steps} \par
+\textbf{Выход:} выполненный шаг автомата либо остановка таймера \par
+\textbf{Описание:} слот срабатывания таймера. Если оставшихся итераций нет, таймер останавливается. Иначе вызывается \texttt{make\_step} и счетчик уменьшается на единицу, поэтому всего выполняется ровно заданное число итераций.\par
+
+\begin{lstlisting}[caption=on\_auto\_tick, label=lst:tick]
+void MainWindow::on_auto_tick(){
+    if (remaining_auto_steps <= 0){
+        timer->stop();
+        run_button->setText("Старт");
+        return;
+    }
+
+    make_step();
+    remaining_auto_steps = remaining_auto_steps - 1;
+}
+\end{lstlisting}
+
+Кнопка «Шаг» напрямую соединена со слотом \texttt{make\_step} и выполняет одну итерацию.
+
+\newpage

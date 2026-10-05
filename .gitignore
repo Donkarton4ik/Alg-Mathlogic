@@ -1,0 +1,23 @@
+.DS_Store/
+
+build/
+*/build/
+.vscode/
+
+# мусор от сборки латеха
+*.aux
+*.log
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.bbl
+*.bcf
+*.blg
+*.lof
+*.lot
+*.nav
+*.snm
+*.vrb
+*.run.xml
